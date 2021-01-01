@@ -6,7 +6,6 @@
     "description": "Zero Allocation StringBuilder for .NET Core and Unity.",
     "keywords": [ "String", "Performance" ],
     "license": "MIT",
-    "author": "hidenami-i",
     "category": "Scripting",
     "dependencies": {}
 }
