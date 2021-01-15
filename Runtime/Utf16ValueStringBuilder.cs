@@ -309,6 +309,14 @@ namespace Cysharp.Text
             int remainLnegth = this.index - index;
             buffer.AsSpan(index, remainLnegth).CopyTo(newBuffer.AsSpan(newBufferIndex));
 
+            if (buffer.Length != ThreadStaticBufferSize)
+            {
+                if (buffer != null)
+                {
+                    ArrayPool<char>.Shared.Return(buffer);
+                }
+            }
+
             buffer = newBuffer;
             this.index = newBufferIndex + remainLnegth;
         }
@@ -512,6 +520,9 @@ namespace Cysharp.Text
         /// <summary>Converts the value of this instance to a System.String.</summary>
         public override string ToString()
         {
+            if (index == 0)
+                return string.Empty;
+
             return new string(buffer, 0, index);
         }
 
@@ -554,10 +565,73 @@ namespace Cysharp.Text
         {
             throw new ArgumentException("Can't format argument.", paramName);
         }
-
-        void ThrowFormatException()
+        static void ThrowFormatException()
         {
             throw new FormatException("Index (zero based) must be greater than or equal to zero and less than the size of the argument list.");
+        }
+        private static void FormatError()
+        {
+            throw new FormatException("Input string was not in a correct format.");
+        }
+
+        void AppendFormatInternal<T>(T arg, int width, ReadOnlySpan<char> format, string argName)
+        {
+            if (width <= 0) // leftJustify
+            {
+                width *= -1;
+
+                if (!FormatterCache<T>.TryFormatDelegate(arg, buffer.AsSpan(index), out var charsWritten, format))
+                {
+                    Grow(charsWritten);
+                    if (!FormatterCache<T>.TryFormatDelegate(arg, buffer.AsSpan(index), out charsWritten, format))
+                    {
+                        ThrowArgumentException(argName);
+                    }
+                }
+
+                index += charsWritten;
+
+                int padding = width - charsWritten;
+                if (width > 0 && padding > 0)
+                {
+                    Append(' ', padding);  // TODO Fill Method is too slow.
+                }
+            }
+            else // rightJustify
+            {
+                if (typeof(T) == typeof(string))
+                {
+                    var s = Unsafe.As<string>(arg);
+                    int padding = width - s.Length;
+                    if (padding > 0)
+                    {
+                        Append(' ', padding);  // TODO Fill Method is too slow.
+                    }
+
+                    Append(s);
+                }
+                else
+                {
+                    Span<char> s = stackalloc char[typeof(T).IsValueType ? Unsafe.SizeOf<T>() * 8 : 1024];
+
+                    if (!FormatterCache<T>.TryFormatDelegate(arg, s, out var charsWritten, format))
+                    {
+                        s = stackalloc char[s.Length * 2];
+                        if (!FormatterCache<T>.TryFormatDelegate(arg, s, out charsWritten, format))
+                        {
+                            ThrowArgumentException(argName);
+                        }
+                    }
+
+                    int padding = width - charsWritten;
+                    if (padding > 0)
+                    {
+                        Append(' ', padding);  // TODO Fill Method is too slow.
+                    }
+
+                    Append(s.Slice(0, charsWritten));
+                }
+            }
         }
 
         static void ThrowNestedException()
